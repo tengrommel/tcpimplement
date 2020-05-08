@@ -4,16 +4,8 @@ pub struct Connection {
     state: State,
     send: SendSequenceSpace,
     recv: RecvSequenceSpace,
+    ip: etherparse::Ipv4Header,
 }
-
-// impl Default for Connection {
-//     fn default() -> Self {
-//         // State::Closed
-//         Connection {
-//             state: State::Listen,
-//         }
-//     }
-// }
 
 // Send Sequence Space
 //
@@ -68,18 +60,9 @@ struct RecvSequenceSpace {
 }
 
 pub enum State {
-    Closed,
-    Listen,
+    // Listen,
     SynRecv,
-    // Estab,
-}
-
-impl Default for State {
-    // add code here
-    fn default() -> Self {
-        // State::Closed
-        State::Listen
-    }
+    Estab,
 }
 
 impl Connection {
@@ -113,6 +96,23 @@ impl Connection {
                 wnd: tcph.window_size(),
                 up: false,
             },
+            ip: etherparse::Ipv4Header::new(
+                0,
+                64,
+                etherparse::IpTrafficClass::Tcp,
+                [
+                    iph.destination()[0],
+                    iph.destination()[1],
+                    iph.destination()[2],
+                    iph.destination()[3],
+                ],
+                [
+                    iph.source()[0],
+                    iph.source()[1],
+                    iph.source()[2],
+                    iph.source()[3],
+                ],
+            ),
         };
         // need to start establishing a connection
         let mut syn_ack = etherparse::TcpHeader::new(
@@ -124,32 +124,20 @@ impl Connection {
         syn_ack.acknowledgment_number = c.recv.nxt;
         syn_ack.syn = true;
         syn_ack.ack = true;
-        let mut ip = etherparse::Ipv4Header::new(
-            syn_ack.header_len(),
-            64,
-            etherparse::IpTrafficClass::Tcp,
-            [
-                iph.destination()[0],
-                iph.destination()[1],
-                iph.destination()[2],
-                iph.destination()[3],
-            ],
-            [
-                iph.source()[0],
-                iph.source()[1],
-                iph.source()[2],
-                iph.source()[3],
-            ],
-        );
-        eprintln!("got ip header:\n{:02x?}", iph);
-        eprintln!("got tcp header:\n{:02x?}", tcph);
+        c.ip.set_payload_len(syn_ack.header_len() as usize + 0);
+        // the kernal is nice and does this for us
+        // syn_ack
+        //     .calc_checksum_ipv4(&ip, &[])
+        //     .expect("failed to compute checksum");
+        // eprintln!("got ip header:\n{:02x?}", iph);
+        // eprintln!("got tcp header:\n{:02x?}", tcph);
         let unwritten = {
             let mut unwritten = &mut buf[..];
-            ip.write(&mut unwritten);
+            c.ip.write(&mut unwritten);
             syn_ack.write(&mut unwritten);
             unwritten.len()
         };
-        eprintln!("responding with {:02x?}", &buf[..unwritten]);
+        eprintln!("responding with {:02x?}", &buf[..buf.len() - unwritten]);
         nic.send(&buf[..unwritten])?;
         Ok(Some(c))
     }
@@ -161,6 +149,97 @@ impl Connection {
         tcph: etherparse::TcpHeaderSlice<'a>,
         data: &'a [u8],
     ) -> io::Result<()> {
-        unimplemented!();
+        // acceptable ack check
+        // SND.UNA < SEG.ACK =< SND.NXT
+        let ackn = tcph.acknowledgment_number();
+        if !is_between_wrapped(self.send.una, self.send.nxt, self.send.nxt.wrapping_add(1)) {
+            return Ok(());
+        }
+        let seqn = tcph.sequence_number();
+
+        if data.len() == 0 && !tcph.syn() && !tcph.fin() {}
+
+        let wend = self.recv.nxt.wrapping_add(self.recv.wnd as u32);
+        if !is_between_wrapped(
+            self.recv.nxt.wrapping_sub(1),
+            seqn,
+            self.recv.nxt.wrapping_add(self.recv.wnd as u32),
+        ) && !is_between_wrapped(
+            self.recv.nxt.wrapping_sub(1),
+            seqn + data.len() as u32 - 1,
+            wend,
+        ) {
+            return Ok(());
+        }
+        match self.state {
+            State::SynRecv => {
+                // expect to get an ACK for our SYN
+            }
+            State::Estab => {
+                unimplemented!();
+            }
+        }
+        Ok(())
     }
+}
+
+fn is_between_wrapped(start: u32, x: u32, end: u32) -> bool {
+    use std::cmp::Ordering;
+    match start.cmp(&x) {
+        Ordering::Equal => return false,
+        Ordering::Less => {
+            // we have:
+            //
+            //   0 |-------------S------X---------------------| (wraparound)
+            //
+            // X is between S and E (S < X < E) in these cases:
+            //
+            //   0 |-------------S------X---E-----------------| (wraparound)
+            //
+            //   0 |----------E--S------X---------------------| (wraparound)
+            //
+            // but *not* in these cases
+            //
+            //   0 |-------------S--E---X---------------------| (wraparound)
+            //
+            //   0 |-------------|------X---------------------| (wraparound)
+            //                   ^-S+E
+            //
+            //   0 |-------------S------|---------------------| (wraparound)
+            //                      X+E-^
+            //
+            // or, in other words, iff !(S <= E <= X)
+            if end >= start && end <= x {
+                return false;
+            }
+        }
+        Ordering::Greater => {
+            // we have the opposite of above:
+            //
+            //   0 |-------------X------S---------------------| (wraparound)
+            //
+            // X is between S and E (S < X < E) *only* in this case:
+            //
+            //   0 |-------------X--E---S---------------------| (wraparound)
+            //
+            // but *not* in these cases
+            //
+            //   0 |-------------X------S---E-----------------| (wraparound)
+            //
+            //   0 |----------E--X------S---------------------| (wraparound)
+            //
+            //   0 |-------------|------S---------------------| (wraparound)
+            //                   ^-X+E
+            //
+            //   0 |-------------X------|---------------------| (wraparound)
+            //                      S+E-^
+            //
+            // or, in other words, iff S < E < X
+            if end < start && end > x {
+            } else {
+                return false;
+            }
+        }
+    }
+    true
 }
