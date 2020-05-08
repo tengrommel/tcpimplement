@@ -156,24 +156,43 @@ impl Connection {
             return Ok(());
         }
         let seqn = tcph.sequence_number();
-
-        if data.len() == 0 && !tcph.syn() && !tcph.fin() {}
-
         let wend = self.recv.nxt.wrapping_add(self.recv.wnd as u32);
-        if !is_between_wrapped(
-            self.recv.nxt.wrapping_sub(1),
-            seqn,
-            self.recv.nxt.wrapping_add(self.recv.wnd as u32),
-        ) && !is_between_wrapped(
-            self.recv.nxt.wrapping_sub(1),
-            seqn + data.len() as u32 - 1,
-            wend,
-        ) {
-            return Ok(());
+        if data.len() == 0 && !tcph.syn() && !tcph.fin() {
+            // zero-length segment hash separate rules for acceptance
+            if self.recv.wnd == 0 {
+                if seqn!=self.recv.nxt{
+                    return Ok(())
+                }
+            } else{
+                if !is_between_wrapped(self.recv.nxt.wrapping_sub(1), seqn, wend) {
+                    return Ok(());
+                }
+            }
+        } else {
+            if self.recv.wnd == 0 {
+                return Ok(())
+            } else {
+                if !is_between_wrapped(
+                    self.recv.nxt.wrapping_sub(1),
+                    seqn,
+                    self.recv.nxt.wrapping_add(self.recv.wnd as u32),
+                ) && !is_between_wrapped(
+                    self.recv.nxt.wrapping_sub(1),
+                    seqn + data.len() as u32 - 1,
+                    wend,
+                ) {
+                    return O
+            }
+        }
+
+        k(());
         }
         match self.state {
             State::SynRecv => {
                 // expect to get an ACK for our SYN
+                if !tcph.ack() {
+                    return Ok(())
+                }
             }
             State::Estab => {
                 unimplemented!();
