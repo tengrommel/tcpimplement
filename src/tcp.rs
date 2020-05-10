@@ -160,17 +160,17 @@ impl Connection {
         if data.len() == 0 && !tcph.syn() && !tcph.fin() {
             // zero-length segment hash separate rules for acceptance
             if self.recv.wnd == 0 {
-                if seqn!=self.recv.nxt{
-                    return Ok(())
+                if seqn != self.recv.nxt {
+                    return Ok(());
                 }
-            } else{
+            } else {
                 if !is_between_wrapped(self.recv.nxt.wrapping_sub(1), seqn, wend) {
                     return Ok(());
                 }
             }
         } else {
             if self.recv.wnd == 0 {
-                return Ok(())
+                return Ok(());
             } else {
                 if !is_between_wrapped(
                     self.recv.nxt.wrapping_sub(1),
@@ -181,17 +181,15 @@ impl Connection {
                     seqn + data.len() as u32 - 1,
                     wend,
                 ) {
-                    return O
+                    return Ok(());
+                }
             }
-        }
-
-        k(());
         }
         match self.state {
             State::SynRecv => {
                 // expect to get an ACK for our SYN
                 if !tcph.ack() {
-                    return Ok(())
+                    return Ok(());
                 }
             }
             State::Estab => {
