@@ -32,6 +32,24 @@ fn main() {
     // ---------------迭代可变使用-----------------
     let mut v2 = vec![1, 2, 3];
     let mut v2_iter = v2.iter_mut();
+    if let Some(v) = v2_iter.next() {
+        *v = 3;
+    }
+    println!("{:?}", v2);
+    // ----------------消费适配器-----------------
+    let v1 = vec![1, 2, 3];
+    let v1_iter = v1.iter();
+    let total: i32 = v1_iter.sum(); // 调用消费适配器sum来求和
+    println!("total = {}", total);
+    // ----------------迭代适配器-----------------
+    println!("+++++++++++++++++++++++++++++++++++++++");
+    let v1 = vec![1, 2, 3];
+    let v2: Vec<_> = v1.iter().map(|x| x + 1).collect(); // map的操作
+    println!("v2 = {:?}", v2);
+    println!("+++++++++++++++++++++++++++++++++++++++");
+    let v1 = vec![1, 21, 13];
+    let v2: Vec<_> = v1.into_iter().filter(|x| *x > 5).collect(); // map的操作
+    println!("v2 = {:?}", v2);
 
     println!("End");
 }
