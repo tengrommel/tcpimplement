@@ -7,12 +7,20 @@
  * （2）当有大量数据并希望在确保数据不被拷贝的情况下转移所有权的时候；
  * （3）当希望拥有一个值只关心它的类型是否实现了特定trait而不是其具体雷兴时。
  * */
-#[derive(Debug)]
+// #[derive(Debug)]
+// enum List {
+//     Cons(i32, List),
+//     Nil,
+// }
+
 enum List {
-    Cons(i32, List),
+    Cons(i32, Box<List>),
     Nil,
 }
 
 fn main() {
+    use List::{Cons, Nil};
+    // let list = Cons(1, Cons(2, Cons(3, Nil)));
+    let list = Cons(1, Box::new(Cons(2, Box::new(Cons(3, Box::new(Nil))))));
     println!("end");
 }
